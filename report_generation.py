@@ -64,6 +64,14 @@ class PipelineOutputFileStructure:
     def speech_analysis_output_path(self):
         return os.path.join(self.root_folder, "speech_analysis.json")
 
+    @property
+    def perframe_hands_landmarks(self):
+        return os.path.join(self.root_folder, "perframe_hands.pckl")
+
+    @property
+    def perframe_face_landmaks(self):
+        return os.path.join(self.root_folder, "perframe_face.pckl")
+
 
 class CriteriaGrade(Enum):
     bad = auto()
