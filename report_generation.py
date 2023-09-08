@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 import os
 import matplotlib
@@ -20,7 +21,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class ReportStructure:
+class ReportFileStructure:
     root_folder: str
 
     def __post_init__(self) -> None:
@@ -55,6 +56,15 @@ class ReportStructure:
         return os.path.join(self.materials_root, "frequent_words.png")
 
 
+@dataclass
+class PipelineOutputFileStructure:
+    root_folder: str
+
+    @property
+    def speech_analysis_output_path(self):
+        return os.path.join(self.root_folder, "speech_analysis.json")
+
+
 class CriteriaGrade(Enum):
     bad = auto()
     medium = auto()
@@ -87,24 +97,44 @@ CRITERIAS_GRADING_RULES: Dict[
         CriteriaGrade.bad: (0, 0.3),
     },
     LectureCriteria.clear_speech_count_percentage: {
-        CriteriaGrade.good: (0, 0.3),
-        CriteriaGrade.medium: (0.3, 0.6),
-        CriteriaGrade.bad: (0.6, 1.1),
+        CriteriaGrade.good: (0.4, 1.1),
+        CriteriaGrade.medium: (0.3, 0.4),
+        CriteriaGrade.bad: (0, 0.3),
+    },
+    LectureCriteria.gaze_to_camera_time_percentage: {
+        CriteriaGrade.good: (0.4, 1.1),
+        CriteriaGrade.medium: (0.3, 0.4),
+        CriteriaGrade.bad: (0, 0.3),
+    },
+    LectureCriteria.background_quality_time_percentage: {
+        CriteriaGrade.good: (0.4, 1.1),
+        CriteriaGrade.medium: (0.3, 0.4),
+        CriteriaGrade.bad: (0, 0.3),
+    },
+    LectureCriteria.head_visibility_time_percentage: {
+        CriteriaGrade.good: (0.4, 1.1),
+        CriteriaGrade.medium: (0.3, 0.4),
+        CriteriaGrade.bad: (0, 0.3),
+    },
+    LectureCriteria.positioned_at_frame_center_time_percentage: {
+        CriteriaGrade.good: (0.4, 1.1),
+        CriteriaGrade.medium: (0.3, 0.4),
+        CriteriaGrade.bad: (0, 0.3),
     },
 }
-
-
-def determine_grade_for_value(
-    grading_rule: Dict[CriteriaGrade, Tuple[float, float]], value: float
-) -> CriteriaGrade:
-    for grade, (interval_start, interval_end) in grading_rule.items():
-        if interval_start <= value < interval_end:
-            return grade
 
 
 def write_file(output_path: str, data: str) -> None:
     with open(output_path, "w") as f:
         f.write(data)
+
+
+def test_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        data=np.random.random((2, 2)),
+        columns=["06.09.2023", "07.09.2023"],
+        index=["articulation", "filler_words_usage"],
+    )
 
 
 def radar_factory(num_vars, frame="circle"):
@@ -139,7 +169,6 @@ def radar_factory(num_vars, frame="circle"):
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            # rotate plot such that the first axis is at the top
             self.set_theta_zero_location("N")
 
         def fill(self, *args, closed=True, **kwargs):
@@ -197,6 +226,15 @@ def radar_factory(num_vars, frame="circle"):
     return theta
 
 
+def safe_reading(path: str) -> str:
+    try:
+        with codecs.open(path, "r") as f:
+            result = f.read()
+    except FileNotFoundError:
+        return ""
+    return result
+
+
 def plot_data_as_radar_chart(
     data: List[float], labels: List[str], color: str
 ) -> Figure:
@@ -210,100 +248,29 @@ def plot_data_as_radar_chart(
     return fig
 
 
-def safe_reading(path: str) -> str:
-    try:
-        with codecs.open(path, "r") as f:
-            result = f.read()
-    except FileNotFoundError:
-        return ""
-    return result
+class SpeechStatisticsProcessor:
+    @staticmethod
+    def extract_parasites_count(data: WORDS_STATS_TYPE) -> int:
+        parasites_stats = data["output"]["top parasites"]
+        parasites_count = sum([count for word, count in parasites_stats])
+        return parasites_count
 
-
-def get_grades_for_table(table: pd.DataFrame) -> pd.DataFrame:
-    data = table.values
-    index = table.index.to_list()
-    grades_data = []
-    for index_name, data_row in zip(index, data):
-        criteria = LectureCriteria[index_name]
-        criteria_grading_rule = CRITERIAS_GRADING_RULES[criteria]
-        data_row_grades: List[CriteriaGrade] = [
-            determine_grade_for_value(grading_rule=criteria_grading_rule, value=v)
-            for v in data_row
-        ]
-        data_row_grades_names = [grade.name for grade in data_row_grades]
-        grades_data.append(data_row_grades_names)
-    grades_datagrame = pd.DataFrame(
-        data=grades_data, index=table.index, columns=table.columns
-    )
-    return grades_datagrame
-
-
-def get_html_repr_of_metrics_table(df: pd.DataFrame) -> str:
-    cell_grades = get_grades_for_table(df)
-    df = df.applymap(lambda x: f"{x:.2f}")
-
-    headers = {
-        "selector": "th:not(.index_name)",
-        "props": "background-color: #C8C8C8; color: black;",
-    }
-    table_attributes = 'style="border-collapse: collapse"'
-
-    styler = (
-        df.style.set_table_attributes(table_attributes)
-        .set_table_styles([headers])
-        .set_table_styles(
-            [
-                {"selector": "th", "props": 'style="border: 1px solid #181818"'},
-                {"selector": "td", "props": "border: 1px solid #181818"},
-                {"selector": "tr", "props": "border: 1px solid #181818"},
-            ],
-            overwrite=False,
+    @staticmethod
+    def extract_clear_speech_percentage(
+        speech_analysis_data: WORDS_STATS_TYPE,
+    ) -> float:
+        parasite_count = SpeechStatisticsProcessor.extract_parasites_count(
+            speech_analysis_data
         )
-    )
-    styler.set_table_styles(
-        [
-            {
-                "selector": f".{grade.name}",
-                "props": f"background-color: {CRITERIA_GRADES_COLORS[grade]};",
-            }
-            for grade in CriteriaGrade
-        ],
-        overwrite=False,
-    )
+        overall_words_count = speech_analysis_data["output"]["overall count"]
+        amm_count = speech_analysis_data["output"]["ammm count"]
+        clear_words_count = overall_words_count - amm_count - parasite_count
+        clear_speech_percentage = clear_words_count / overall_words_count
+        return clear_speech_percentage
 
-    styler.set_td_classes(cell_grades)
-    html_render = styler.to_html()
-    return html_render
-
-
-def test_table() -> pd.DataFrame:
-    return pd.DataFrame(
-        data=np.random.random((2, 2)),
-        columns=["06.09.2023", "07.09.2023"],
-        index=["articulation", "filler_words_usage"],
-    )
-
-
-def test_table_summary():
-    table = test_table()
-    html = get_html_repr_of_metrics_table(table)
-    write_file(output_path="summary.html", data=html)
-
-
-def frequent_words_diagram():
-    pass
-
-
-def extract_parasites_count(data: WORDS_STATS_TYPE) -> int:
-    parasites_stats = data["output"]["top parasites"]
-    parasites_count = sum([count for word, count in parasites_stats])
-    return parasites_count
-
-
-class SpeechStatisticsPlotters:
     @staticmethod
     def plot_speech_analysis_hbar(ax: Axes, data: WORDS_STATS_TYPE) -> None:
-        parasite_count = extract_parasites_count(data)
+        parasite_count = SpeechStatisticsProcessor.extract_parasites_count(data)
         all_words_num = data["output"]["overall count"]
         amm_count = data["output"]["ammm count"]
         normal_words_count = all_words_num - parasite_count - amm_count
@@ -361,52 +328,242 @@ class SpeechStatisticsPlotters:
         ax.set_title("Frequent words analysis")
 
 
-def generate_report_materials(
-    report_structure: ReportStructure,
-):
-    with open(SPEECH_DATA_JSON, "r") as f:
-        data: WORDS_STATS_TYPE = json.load(f)
-    figsize = (15, 5)
-    fig, ax = plt.subplots(figsize=figsize)
-    SpeechStatisticsPlotters.plot_speech_analysis_hbar(ax, data)
-    fig.savefig(report_structure.speech_analysis_plot_path)
-    plt.close(fig)
+class LectureCriteriaComputers:
+    @staticmethod
+    def get_articulation_percentage(
+        pipeline_output_structure: PipelineOutputFileStructure,
+    ) -> float:
+        return np.random.random()
 
-    fig, ax = plt.subplots(figsize=figsize)
-    SpeechStatisticsPlotters.plot_frequent_parasites_hbar(ax, data)
-    fig.savefig(report_structure.frequent_parasites_plot_path)
-    plt.close(fig)
+    @staticmethod
+    def get_clear_speech_percentage(
+        pipeline_output_structure: PipelineOutputFileStructure,
+    ) -> float:
+        speech_analysis_data: WORDS_STATS_TYPE
+        with open(pipeline_output_structure.speech_analysis_output_path, "r") as f:
+            speech_analysis_data = json.load(f)
+        clear_speech_percentage: float = (
+            SpeechStatisticsProcessor.extract_clear_speech_percentage(
+                speech_analysis_data
+            )
+        )
+        return clear_speech_percentage
 
-    fig, ax = plt.subplots(figsize=figsize)
-    SpeechStatisticsPlotters.plot_frequent_words_hbar(ax, data)
-    fig.savefig(report_structure.frequent_words_plot_path)
-    plt.close(fig)
+    @staticmethod
+    def get_gaze_to_camera_percentage(
+        pipeline_output_structure: PipelineOutputFileStructure,
+    ) -> float:
+        return np.random.random()
+
+    @staticmethod
+    def get_background_quality_time_percentage(
+        pipeline_output_structure: PipelineOutputFileStructure,
+    ) -> float:
+        return np.random.random()
+
+    @staticmethod
+    def get_head_visibility_time_percentage(
+        pipeline_output_structure: PipelineOutputFileStructure,
+    ) -> float:
+        return np.random.random()
+
+    @staticmethod
+    def get_position_at_frame_center_time_percentage(
+        pipeline_output_structure: PipelineOutputFileStructure,
+    ) -> float:
+        return np.random.random()
 
 
-def combine_report(report_structure: ReportStructure):
-    table_summary = safe_reading(report_structure.html_table_path)
+class ReportGeneration:
+    CRITERA_ANALYZERS: Dict[
+        LectureCriteria, Callable[[PipelineOutputFileStructure], float]
+    ] = {
+        LectureCriteria.articulation_time_percentage: LectureCriteriaComputers.get_articulation_percentage,
+        LectureCriteria.clear_speech_count_percentage: LectureCriteriaComputers.get_clear_speech_percentage,
+        LectureCriteria.gaze_to_camera_time_percentage: LectureCriteriaComputers.get_gaze_to_camera_percentage,
+        LectureCriteria.background_quality_time_percentage: LectureCriteriaComputers.get_background_quality_time_percentage,
+        LectureCriteria.head_visibility_time_percentage: LectureCriteriaComputers.get_head_visibility_time_percentage,
+        LectureCriteria.positioned_at_frame_center_time_percentage: LectureCriteriaComputers.get_position_at_frame_center_time_percentage,
+    }
 
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=TEMPLATE_DIR))
-    template = env.get_template("report_template.html")
-    radar_chart_img = f'<img src="{report_structure.radar_chart_path}"/>'
-    speech_analysis_img = f'<img src="{report_structure.speech_analysis_plot_path}"/>'
-    frequent_words_img = f'<img src="{report_structure.frequent_words_plot_path}"/>'
-    frequent_parasites_img = (
-        f'<img src="{report_structure.frequent_parasites_plot_path}"/>'
+    @staticmethod
+    def determine_grade_for_value(
+        grading_rule: Dict[CriteriaGrade, Tuple[float, float]], value: float
+    ) -> CriteriaGrade:
+        for grade, (interval_start, interval_end) in grading_rule.items():
+            if interval_start <= value < interval_end:
+                return grade
+
+    @staticmethod
+    def get_grades_for_table(table: pd.DataFrame) -> pd.DataFrame:
+        data = table.values
+        index = table.index.to_list()
+        grades_data = []
+        for index_name, data_row in zip(index, data):
+            criteria = LectureCriteria[index_name]
+            criteria_grading_rule = CRITERIAS_GRADING_RULES[criteria]
+            data_row_grades: List[CriteriaGrade] = [
+                ReportGeneration.determine_grade_for_value(
+                    grading_rule=criteria_grading_rule, value=v
+                )
+                for v in data_row
+            ]
+            data_row_grades_names = [grade.name for grade in data_row_grades]
+            grades_data.append(data_row_grades_names)
+        grades_datagrame = pd.DataFrame(
+            data=grades_data, index=table.index, columns=table.columns
+        )
+        return grades_datagrame
+
+    @staticmethod
+    def get_html_repr_of_metrics_table(metrics_dataframe: pd.DataFrame) -> str:
+        cell_grades = ReportGeneration.get_grades_for_table(metrics_dataframe)
+        metrics_dataframe = metrics_dataframe.applymap(lambda x: f"{x:.2f}")
+
+        headers = {
+            "selector": "th:not(.index_name)",
+            "props": "background-color: #C8C8C8; color: black;",
+        }
+        table_attributes = 'style="border-collapse: collapse"'
+
+        styler = (
+            metrics_dataframe.style.set_table_attributes(table_attributes)
+            .set_table_styles([headers])
+            .set_table_styles(
+                [
+                    {"selector": "th", "props": 'style="border: 1px solid #181818"'},
+                    {"selector": "td", "props": "border: 1px solid #181818"},
+                    {"selector": "tr", "props": "border: 1px solid #181818"},
+                ],
+                overwrite=False,
+            )
+        )
+        styler.set_table_styles(
+            [
+                {
+                    "selector": f".{grade.name}",
+                    "props": f"background-color: {CRITERIA_GRADES_COLORS[grade]};",
+                }
+                for grade in CriteriaGrade
+            ],
+            overwrite=False,
+        )
+
+        styler.set_td_classes(cell_grades)
+        html_render = styler.to_html()
+        return html_render
+
+    @staticmethod
+    def produce_metrics_dataframe(
+        pipeline_output: PipelineOutputFileStructure,
+        lecture_name: Optional[str] = None,
+    ) -> pd.DataFrame:
+        metrics_table_data = []
+        row_names: List[str] = []
+        for criteria, criteria_function in ReportGeneration.CRITERA_ANALYZERS.items():
+            criteria_value = criteria_function(pipeline_output)
+            row_names.append(criteria.name)
+            metrics_table_data.append([criteria_value])
+
+        metrics_table: pd.DataFrame
+        if lecture_name:
+            metrics_table = pd.DataFrame(
+                metrics_table_data, index=row_names, columns=[lecture_name]
+            )
+        else:
+            metrics_table = pd.DataFrame(
+                metrics_table_data,
+                index=row_names,
+            )
+        return metrics_table
+
+    @staticmethod
+    def generate_report_materials(
+        report_structure: ReportFileStructure,
+        pipeline_output_structure: PipelineOutputFileStructure,
+        lecture_name: str,
+    ):
+        with open(pipeline_output_structure.speech_analysis_output_path, "r") as f:
+            speech_data: WORDS_STATS_TYPE = json.load(f)
+        metrics_dataframe: pd.DataFrame = ReportGeneration.produce_metrics_dataframe(
+            pipeline_output=pipeline_output_structure, lecture_name=lecture_name
+        )
+        fig = plot_data_as_radar_chart(
+            data=metrics_dataframe.to_numpy()[:, 0],
+            labels=metrics_dataframe.index.to_list(),
+            color="y",
+        )
+        fig.savefig(report_structure.radar_chart_path)
+        plt.close(fig)
+
+        metrics_html: str = ReportGeneration.get_html_repr_of_metrics_table(
+            metrics_dataframe
+        )
+        write_file(output_path=report_structure.html_table_path, data=metrics_html)
+
+        figsize = (15, 5)
+        fig, ax = plt.subplots(figsize=figsize)
+        SpeechStatisticsProcessor.plot_speech_analysis_hbar(ax, speech_data)
+        fig.savefig(report_structure.speech_analysis_plot_path)
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        SpeechStatisticsProcessor.plot_frequent_parasites_hbar(ax, speech_data)
+        fig.savefig(report_structure.frequent_parasites_plot_path)
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        SpeechStatisticsProcessor.plot_frequent_words_hbar(ax, speech_data)
+        fig.savefig(report_structure.frequent_words_plot_path)
+        plt.close(fig)
+
+    @staticmethod
+    def generate_final_report(report_structure: ReportFileStructure):
+        table_summary = safe_reading(report_structure.html_table_path)
+
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(searchpath=TEMPLATE_DIR)
+        )
+        template = env.get_template("report_template.html")
+        radar_chart_img = f'<img src="{report_structure.radar_chart_path}"/>'
+        speech_analysis_img = (
+            f'<img src="{report_structure.speech_analysis_plot_path}"/>'
+        )
+        frequent_words_img = f'<img src="{report_structure.frequent_words_plot_path}"/>'
+        frequent_parasites_img = (
+            f'<img src="{report_structure.frequent_parasites_plot_path}"/>'
+        )
+
+        html = template.render(
+            table_summary=table_summary,
+            radar_chart=radar_chart_img,
+            speech_analysis=speech_analysis_img,
+            frequent_words=frequent_words_img,
+            frequent_parasites=frequent_parasites_img,
+        )
+        write_file(output_path=report_structure.generated_report_path, data=html)
+
+
+def test_table_summary():
+    pipeline_output = PipelineOutputFileStructure(
+        "/home/andrey/AS/dev/BootCampHak/test_pipelines/pipeline1"
     )
-
-    html = template.render(
-        table_summary=table_summary,
-        radar_chart=radar_chart_img,
-        speech_analysis=speech_analysis_img,
-        frequent_words=frequent_words_img,
-        frequent_parasites=frequent_parasites_img,
+    metrics_dataframe = ReportGeneration.produce_metrics_dataframe(
+        pipeline_output, lecture_name="08.09.2023"
     )
-    write_file(output_path=report_structure.generated_report_path, data=html)
+    print(metrics_dataframe)
 
 
 if __name__ == "__main__":
-    report_structure = ReportStructure(
+    pipeline_output = PipelineOutputFileStructure(
+        "/home/andrey/AS/dev/BootCampHak/test_pipelines/pipeline1"
+    )
+    report_structure = ReportFileStructure(
         "/home/andrey/AS/dev/BootCampHak/test_reports/report1"
     )
-    combine_report(report_structure)
+    ReportGeneration.generate_report_materials(
+        report_structure=report_structure,
+        pipeline_output_structure=pipeline_output,
+        lecture_name="test",
+    )
+    ReportGeneration.generate_final_report(report_structure)
