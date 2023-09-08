@@ -214,7 +214,7 @@ class Utils:
             flat_chan = result[:,:,chanel].flatten()
             flat_chan = flat_chan * bool_mask_flatten
             res.append(np.std(flat_chan))
-        return np.ndarray(res)
+        return np.asarray(res)
 
 
 # def mediapipe_hands_inference_demo() -> None:
@@ -292,7 +292,9 @@ def mediapipe_save_video_demo(NAME) -> None:
             img_tensor = Utils.preprocess_direction_input(frame_cv2, bbox_data)
             yaw, pitch, roll = direction_detector(img_tensor)
             yaw, pitch, roll = Utils.postprocess_direction_output(yaw, pitch, roll)
-            direction_list.append(np.ndarray((yaw, pitch, roll)))
+            direction_list.append(np.asarray((yaw, pitch, roll)))
+
+            
             
             rgb_std = Utils.count_background_std(segmentation_result.category_mask, rgb_frame)
             std_list.append(rgb_std)
